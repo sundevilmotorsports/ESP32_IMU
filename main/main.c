@@ -13,6 +13,7 @@ void app_main( void )
 {
     LED_Init();
     IMU_Init();
+    CAN_Init();
 
     TASKS_Init();
 }

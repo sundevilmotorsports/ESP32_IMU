@@ -22,6 +22,8 @@ static void TASKS_10ms( void *pvParameters )
     const TickType_t xFrequency = pdMS_TO_TICKS( PERIOD_10MS );
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
+    ESP_LOGI( TAG, "Starting 10ms task..." );
+
     while( 1 )
     {
         IMU_10ms();
@@ -35,6 +37,8 @@ static void TASKS_500ms( void *pvParameters )
 {
     const TickType_t xFrequency = pdMS_TO_TICKS( PERIOD_500MS );
     TickType_t xLastWakeTime = xTaskGetTickCount();
+
+    ESP_LOGI( TAG, "Starting 500ms task..." );
 
     while( 1 )
     {
@@ -52,7 +56,7 @@ void TASKS_Init( void )
     */
     ESP_LOGI( TAG, "Initializing tasks..." );
 
-    xTaskCreate( TASKS_10ms, "Task10ms", 2048, NULL, 1, NULL );
+    xTaskCreate( TASKS_10ms, "Task10ms", 4096, NULL, 1, NULL );
     xTaskCreate( TASKS_500ms, "Task500ms", 2048, NULL, 0, NULL );
 
     ESP_LOGI( TAG, "Initializing tasks... DONE" );

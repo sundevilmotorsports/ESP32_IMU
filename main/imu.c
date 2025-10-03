@@ -2,6 +2,7 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "imu.h"
+#include "can.h"
 
 
 #define I2C_PORT_0                  0           // I2C port number
@@ -29,9 +30,21 @@ typedef struct{
     float acc_y;    // in m/s^2
     float acc_z;    // in m/s^2
 } imu_data_t;
+
+typedef struct
+{
+    int16_t gyro_x;
+    int16_t gyro_y;
+    int16_t gyro_z; 
+    int16_t acc_x;
+    int16_t acc_y;
+    int16_t acc_z;
+} imu_raw_t;
+
  
 
 static i2c_master_dev_handle_t dev_handle;
+static imu_raw_t imu_raw;
 static imu_data_t imu_data;
 static uint8_t read_buf[ READ_BUFFER_SIZE ];
 static const char *TAG = "IMU";
@@ -106,14 +119,26 @@ void IMU_10ms( void )
     // Read all registers at once
     Read_Register( REG_OUTX_L_G, read_buf, READ_BUFFER_SIZE );
 
-    // Convert the raw values to physical values and store them in the struct
-    imu_data.gyro_x = ( int16_t )( ( read_buf[1] << 8 ) | read_buf[0] ) * SENSITVITY_GYRO_500DPS / 1000;
-    imu_data.gyro_y = ( int16_t )( ( read_buf[3] << 8 ) | read_buf[2] ) * SENSITVITY_GYRO_500DPS / 1000;
-    imu_data.gyro_z = ( int16_t )( ( read_buf[5] << 8 ) | read_buf[4] ) * SENSITVITY_GYRO_500DPS / 1000;
-    imu_data.acc_x  = ( int16_t )( ( read_buf[7] << 8 ) | read_buf[6] ) * SENSITIVITY_ACC_16G / 1000;
-    imu_data.acc_y  = ( int16_t )( ( read_buf[9] << 8 ) | read_buf[8] ) * SENSITIVITY_ACC_16G / 1000;
-    imu_data.acc_z  = ( int16_t )( ( read_buf[11] << 8 ) | read_buf[10] ) * SENSITIVITY_ACC_16G / 1000;
+    // Store the raw values
+    imu_raw.gyro_x = ( int16_t )( ( read_buf[ 1 ] << 8 ) | read_buf[ 0 ] );
+    imu_raw.gyro_y = ( int16_t )( ( read_buf[ 3 ] << 8 ) | read_buf[ 2 ] );
+    imu_raw.gyro_z = ( int16_t )( ( read_buf[ 5 ] << 8 ) | read_buf[ 4 ] );
+    imu_raw.acc_x  = ( int16_t )( ( read_buf[ 7 ] << 8 ) | read_buf[ 6 ] );
+    imu_raw.acc_y  = ( int16_t )( ( read_buf[ 9 ] << 8 ) | read_buf[ 8 ] );
+    imu_raw.acc_z  = ( int16_t )( ( read_buf[ 11 ] << 8 ) | read_buf[ 10 ] );
 
+    imu_data.gyro_x = imu_raw.gyro_x * SENSITVITY_GYRO_500DPS / 1000;
+    imu_data.gyro_y = imu_raw.gyro_y * SENSITVITY_GYRO_500DPS / 1000;
+    imu_data.gyro_z = imu_raw.gyro_z * SENSITVITY_GYRO_500DPS / 1000;
+    imu_data.acc_x  = imu_raw.acc_x * SENSITIVITY_ACC_16G / 1000;
+    imu_data.acc_y  = imu_raw.acc_y * SENSITIVITY_ACC_16G / 1000;
+    imu_data.acc_z  = imu_raw.acc_z * SENSITIVITY_ACC_16G / 1000;
+
+    // Transmit raw data over CAN
+    CAN_Transmit( 0x360, ( uint8_t* )&imu_raw, 6 );   // gyro
+    CAN_Transmit( 0x361, ( uint8_t* )&imu_raw + 6, 6 ); // accelerometer
+
+    // Only for debugging
     // ESP_LOGI( TAG, "Acceleration X: %f", imu_data.acc_x );
     // ESP_LOGI( TAG, "Acceleration Y: %f", imu_data.acc_y );
     // ESP_LOGI( TAG, "Acceleration Z: %f", imu_data.acc_z );
