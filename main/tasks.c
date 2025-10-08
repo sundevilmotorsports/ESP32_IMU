@@ -56,7 +56,7 @@ void TASKS_Init( void )
     */
     ESP_LOGI( TAG, "Initializing tasks..." );
 
-    xTaskCreate( TASKS_10ms, "Task10ms", 4096, NULL, 1, NULL );
+    xTaskCreate( TASKS_10ms, "Task10ms", 8192, NULL, 1, NULL );
     xTaskCreate( TASKS_500ms, "Task500ms", 2048, NULL, 0, NULL );
 
     ESP_LOGI( TAG, "Initializing tasks... DONE" );
