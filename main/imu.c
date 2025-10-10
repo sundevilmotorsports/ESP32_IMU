@@ -18,8 +18,11 @@
 #define REG_CTRL2_G                 0x11        // Control register address for gyroscope
 #define REG_OUTX_L_G                0x22        // Gyro X register address (start of all measurements)
 
-#define SENSITIVITY_ACC_16G         0.488    // Accelerometer raw to physical sensitivity (in mg/LSB)
-#define SENSITVITY_GYRO_500DPS      17.5     // Gyroscope raw to physical sensitivity in (mdps/LSB)
+#define REG_CTRL1_XL_INIT           0x48        // ODR = 104 Hz, FS = +/- 4g, 1st stage filter      
+#define REG_CTRL2_G_INIT            0x44        // ODR = 104Hz, FS = 500 dps
+
+#define SENSITIVITY_ACC_4G          0.122       // Accelerometer raw to physical sensitivity (in mg/LSB)
+#define SENSITIVITY_GYRO_500DPS     17.5        // Gyroscope raw to physical sensitivity in (mdps/LSB)
 
 #define CAN_360_DLC                 6           // Number of bytes to send in CAN message for ID 0x360 (gyro)
 #define CAN_361_DLC                 6           // Number of bytes to send in CAN message for ID 0x361 (accelerometer)
@@ -119,8 +122,8 @@ void IMU_Init( void )
         ESP_LOGE( TAG, "Failed to add IMU device to I2C bus." );
     }
 
-    Write_Register( REG_CTRL1_XL, 0x34 ); 
-    Write_Register( REG_CTRL2_G, 0x34 );
+    Write_Register( REG_CTRL1_XL, REG_CTRL1_XL_INIT ); 
+    Write_Register( REG_CTRL2_G, REG_CTRL2_G_INIT );
 
     ESP_LOGI( TAG, "Initializing IMU... DONE" );
 }
@@ -136,12 +139,12 @@ void IMU_10ms( void )
     Read_Register( REG_OUTX_L_G, ( uint8_t* ) &imu_raw, READ_BUFFER_SIZE );
 
     // Convert raw values to physical values
-    imu_data.gyro_x = imu_raw.gyro_x * SENSITVITY_GYRO_500DPS / 1000;
-    imu_data.gyro_y = imu_raw.gyro_y * SENSITVITY_GYRO_500DPS / 1000;
-    imu_data.gyro_z = imu_raw.gyro_z * SENSITVITY_GYRO_500DPS / 1000;
-    imu_data.acc_x  = imu_raw.acc_x * SENSITIVITY_ACC_16G / 1000;
-    imu_data.acc_y  = imu_raw.acc_y * SENSITIVITY_ACC_16G / 1000;
-    imu_data.acc_z  = imu_raw.acc_z * SENSITIVITY_ACC_16G / 1000;
+    imu_data.gyro_x = imu_raw.gyro_x * SENSITIVITY_GYRO_500DPS / 1000;
+    imu_data.gyro_y = imu_raw.gyro_y * SENSITIVITY_GYRO_500DPS / 1000;
+    imu_data.gyro_z = imu_raw.gyro_z * SENSITIVITY_GYRO_500DPS / 1000;
+    imu_data.acc_x  = imu_raw.acc_x * SENSITIVITY_ACC_4G / 1000;
+    imu_data.acc_y  = imu_raw.acc_y * SENSITIVITY_ACC_4G / 1000;
+    imu_data.acc_z  = imu_raw.acc_z * SENSITIVITY_ACC_4G / 1000;
 
     // Transmit raw data over CAN
     // TODO: test if endianness is correct
