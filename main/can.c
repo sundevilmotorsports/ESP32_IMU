@@ -13,11 +13,19 @@
 #define TERMINATION_GPIO    18           // GPIO pin for CAN bus termination resistor control
 
 
+typedef enum {
+    CAN_STATE_OK,
+    CAN_STATE_ERROR,
+    CAN_STATE_RECOVERING
+} can_state_t;
+
+
 static const char *TAG = "CAN";
 static twai_node_handle_t can_handle = NULL;
-static twai_node_status_t can_status;
-static twai_node_record_t can_record;
+static twai_node_status_t node_status;
+static twai_node_record_t node_record;
 static uint8_t state = 0;
+static can_state_t e_can_state = CAN_STATE_OK;
 
 
 static bool twai_rx_cb(twai_node_handle_t handle, const twai_rx_done_event_data_t *edata, void *user_ctx);
@@ -102,45 +110,50 @@ void CAN_Init( void )
 void CAN_Transmit( uint32_t id, uint8_t* data, uint8_t len )
 {
 
-    twai_node_get_info( can_handle, &can_status, &can_record );
+    twai_node_get_info( can_handle, &node_status, &node_record );
 
-    if( can_status.state == TWAI_ERROR_BUS_OFF )
+    if( TWAI_ERROR_BUS_OFF == node_status.state )
     {
-        if ( state != 1 )
-        {
-            twai_node_recover( can_handle );
-            state = 1;
-            // recovering
-            ESP_LOGW( TAG, "Recovering CAN bus..." );
-        }  
+        e_can_state = CAN_STATE_ERROR;
     }
-    else
+
+    switch( e_can_state )
     {
-        if ( state == 1 )
-        {
-            state = 0;
-            ESP_LOGI( TAG, "CAN bus recovered." );
-        }
+        case CAN_STATE_OK:
+            twai_frame_t tx_msg = {
+                .header = {
+                    .id = id,
+                    .dlc = len,
+                    .ide = 0,       // Standard frame
+                    .rtr = 0,       // Data frame
+                    .fdf = 0,       // Not FD frame
+                    .brs = 0,       // No bit rate switch
+                    .esi = 0,       // Not an error frame
+                },
+                .buffer = data,
+                .buffer_len = len,
+            };
 
-        twai_frame_t tx_msg = {
-            .header = {
-                .id = id,
-                .dlc = len,
-                .ide = 0,       // Standard frame
-                .rtr = 0,       // Data frame
-                .fdf = 0,       // Not FD frame
-                .brs = 0,       // No bit rate switch
-                .esi = 0,       // Not an error frame
-            },
-            .buffer = data,
-            .buffer_len = len,
-        };
+            if ( ESP_OK != twai_node_transmit( can_handle, &tx_msg, TRANSMIT_NOW ) ) 
+            {
+                ESP_LOGE( TAG, "Failed to transmit CAN message with ID 0x%03X", tx_msg.header.id );
+            }
+            
+            break;
 
-        if ( ESP_OK != twai_node_transmit( can_handle, &tx_msg, TRANSMIT_NOW ) ) 
-        {
-            ESP_LOGE( TAG, "Failed to transmit CAN message with ID 0x%03X", tx_msg.header.id );
-        }
+        case CAN_STATE_ERROR:
+            twai_node_recover( can_handle );
+            e_can_state = CAN_STATE_RECOVERING;
+            ESP_LOGW( TAG, "Recovering CAN bus..." );
+            break;
 
+        case CAN_STATE_RECOVERING:
+            if( TWAI_ERROR_ACTIVE == node_status.state )
+            {
+                e_can_state = CAN_STATE_OK;
+                ESP_LOGI( TAG, "CAN bus recovered." );
+            }
+            break;
     }
     
 }
