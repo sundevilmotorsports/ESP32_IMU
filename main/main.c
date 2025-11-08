@@ -4,6 +4,8 @@
 #include "imu.h"
 #include "can.h"
 #include "tasks.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 
 static const char *TAG = "MAIN";

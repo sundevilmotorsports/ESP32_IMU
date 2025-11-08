@@ -24,25 +24,10 @@ static const char *TAG = "CAN";
 static twai_node_handle_t can_handle = NULL;
 static twai_node_status_t node_status;
 static twai_node_record_t node_record;
-static uint8_t state = 0;
 static can_state_t e_can_state = CAN_STATE_OK;
 
 
 static bool twai_rx_cb(twai_node_handle_t handle, const twai_rx_done_event_data_t *edata, void *user_ctx);
-
-
-// static bool twai_rx_cb(twai_node_handle_t handle, const twai_rx_done_event_data_t *edata, void *user_ctx)
-// {
-//     uint8_t recv_buff[8] = {0};
-//     twai_frame_t rx_frame = {
-//         .buffer = recv_buff,
-//         .buffer_len = sizeof(recv_buff),
-//     };
-//     if (ESP_OK == twai_node_receive_from_isr(handle, &rx_frame)) {
-//         ESP_LOGI(TAG, "Received CAN message with ID 0x%03X", rx_frame.header.id);
-//     }
-//     return false;
-// }
 
 
 void CAN_Init( void )
@@ -78,20 +63,6 @@ void CAN_Init( void )
     {
         ESP_LOGE( TAG, "Failed to create CAN node." );
     }
-
-    // Register callback function for received messages
-    // twai_event_callbacks_t user_cbs = {
-    //     .on_rx_done = twai_rx_cb,
-    // };
-
-    // if( ESP_OK == twai_node_register_event_callbacks( can_handle, &user_cbs, NULL ) )
-    // {
-    //     ESP_LOGI( TAG, "Registered CAN RX callback." );
-    // }
-    // else
-    // {
-    //     ESP_LOGE( TAG, "Failed to register CAN RX callback." );
-    // }
 
     // Enable the CAN node
     if( ESP_OK == twai_node_enable( can_handle ) )
