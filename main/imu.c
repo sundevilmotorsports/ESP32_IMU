@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "imu.h"
 #include "can.h"
+#include "freertos/FreeRTOS.h"
 
 
 #define I2C_PORT_0                  0           // I2C port number
@@ -149,13 +150,15 @@ void IMU_10ms( void )
     // Transmit raw data over CAN
     // TODO: test if endianness is correct
     CAN_Transmit( 0x360, ( uint8_t* ) &imu_raw.gyro_x, CAN_360_DLC );   // gyro
+    vTaskDelay(10);
     CAN_Transmit( 0x361, ( uint8_t* ) &imu_raw.acc_x, CAN_361_DLC );    // accelerometer
 
     // Only for debugging
-    // ESP_LOGI( TAG, "Acceleration X: %f", imu_data.acc_x );
-    // ESP_LOGI( TAG, "Acceleration Y: %f", imu_data.acc_y );
-    // ESP_LOGI( TAG, "Acceleration Z: %f", imu_data.acc_z );
-    // ESP_LOGI( TAG, "Gyro X: %f", imu_data.gyro_x );
-    // ESP_LOGI( TAG, "Gyro Y: %f", imu_data.gyro_y );
-    // ESP_LOGI( TAG, "Gyro Z: %f", imu_data.gyro_z );
+    printf("\033[2J\033[H");
+    ESP_LOGI( TAG, "Acceleration X: %f", imu_data.acc_x );
+    ESP_LOGI( TAG, "Acceleration Y: %f", imu_data.acc_y );
+    ESP_LOGI( TAG, "Acceleration Z: %f", imu_data.acc_z );
+    ESP_LOGI( TAG, "Gyro X: %f", imu_data.gyro_x );
+    ESP_LOGI( TAG, "Gyro Y: %f", imu_data.gyro_y );
+    ESP_LOGI( TAG, "Gyro Z: %f", imu_data.gyro_z );
 }
