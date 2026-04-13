@@ -10,8 +10,7 @@ static const char *TAG = "LED";
 static uint8_t led_state = 0;
 
 
-void LED_Init( void )
-{
+void LED_Init( void ){
     /*
         Initialize the LED GPIO pin.
     */
@@ -23,8 +22,7 @@ void LED_Init( void )
     ESP_LOGI( TAG, "Initializing LED... DONE" );
 }
 
-void LED_500ms( void )
-{   
+void LED_500ms( void ){   
     /*
         Periodic callback to toggle the LED state every 500ms.
     */

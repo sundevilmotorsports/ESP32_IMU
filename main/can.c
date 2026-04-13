@@ -37,7 +37,7 @@ void CAN_Init( void )
     // Enable termination resistor
     gpio_reset_pin( TERMINATION_GPIO );
     gpio_set_direction( TERMINATION_GPIO, GPIO_MODE_OUTPUT );
-    gpio_set_level( TERMINATION_GPIO, 1 );   // Enable termination resistor if used
+    gpio_set_level( TERMINATION_GPIO, 0 );   // Enable termination resistor if used
 
     // Create a new CAN controller driver instance
     twai_onchip_node_config_t node_config = {

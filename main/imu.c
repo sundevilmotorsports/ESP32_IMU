@@ -1,151 +1,148 @@
-#include <stdint.h>
-#include "driver/i2c_master.h"
-#include "esp_log.h"
 #include "imu.h"
 #include "can.h"
-#include "freertos/FreeRTOS.h"
 
+static const uint8_t imu_addresses[] = {0x6A, 0x6B};
 
-#define I2C_PORT_0                  0           // I2C port number
-#define I2C_MASTER_SCL_PIN          11          // SCL GPIO pin number
-#define I2C_MASTER_SDA_PIN          10          // SDA GPIO pin number
-#define IMU_I2C_ADDR                0x6A        // IMU I2C address (datasheet)
-#define I2C_TIMEOUT_MS              200         // I2C read/write timeout in milliseconds
-#define READ_BUFFER_SIZE            12          // Number of bytes to read from the IMU
-#define I2C_HZ_400KHZ               400000      // I2C 400kHz clock speed
-#define I2C_HZ_1MHZ                 1000000     // I2C 1MHz clock speed
-
-#define REG_CTRL1_XL                0x10        // Control register address for accelerometer
-#define REG_CTRL2_G                 0x11        // Control register address for gyroscope
-#define REG_OUTX_L_G                0x22        // Gyro X register address (start of all measurements)
-
-#define REG_CTRL1_XL_INIT           0x48        // ODR = 104 Hz, FS = +/- 4g, 1st stage filter      
-#define REG_CTRL2_G_INIT            0x44        // ODR = 104Hz, FS = 500 dps
-
-#define SENSITIVITY_ACC_4G          0.122       // Accelerometer raw to physical sensitivity (in mg/LSB)
-#define SENSITIVITY_GYRO_500DPS     17.5        // Gyroscope raw to physical sensitivity in (mdps/LSB)
-
-#define CAN_360_DLC                 6           // Number of bytes to send in CAN message for ID 0x360 (gyro)
-#define CAN_361_DLC                 6           // Number of bytes to send in CAN message for ID 0x361 (accelerometer)
-
-
-typedef struct{ 
-    float gyro_x;   // in degrees/s
-    float gyro_y;   // in degrees/s
-    float gyro_z;   // in degrees/s
-    float acc_x;    // in m/s^2
-    float acc_y;    // in m/s^2
-    float acc_z;    // in m/s^2
-} imu_data_t;
-
-typedef struct
-{
-    int16_t gyro_x;
-    int16_t gyro_y;
-    int16_t gyro_z; 
-    int16_t acc_x;
-    int16_t acc_y;
-    int16_t acc_z;
-} imu_raw_t;
-
- 
+static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t dev_handle;
+
 static imu_raw_t imu_raw;
 static imu_data_t imu_data;
+
 static const char *TAG = "IMU";
 
+static uint8_t imu_addr = 0;
+static uint8_t imu_fail_count = 0;
+static bool imu_initialized = false;
 
-static void Read_Register( uint8_t register_addr, uint8_t* read_buf, size_t n_bytes );
-static void Write_Register( uint8_t register_addr, uint8_t data );
-
-
-static void Read_Register( uint8_t register_addr, uint8_t* read_buf, size_t n_bytes )
-{
-    /*
-        Reads n_bytes starting from the address register_addr and stores them in read_buf.
-    */
-    i2c_master_transmit_receive( dev_handle, &register_addr,
-                                 sizeof( register_addr ), read_buf, n_bytes, I2C_TIMEOUT_MS );
-
-    // ESP_LOGI( TAG, "Reading Register 0x%02X: 0x%02X", register_addr, read_buf );
+static esp_err_t Read_Register(uint8_t reg, uint8_t *buf, size_t len){
+    return i2c_master_transmit_receive(dev_handle, &reg, 1, buf, len, I2C_TIMEOUT_MS);
 }
 
-static void Write_Register( uint8_t register_addr, uint8_t data )
-{
-    /*
-        Writes one byte to a register.
-        The first byte is the register address, followed by the register value byte.
-    */
-    uint8_t write_buf[ 2 ] = { register_addr, data };
-    i2c_master_transmit( dev_handle, write_buf, 2, I2C_TIMEOUT_MS );
+static esp_err_t Write_Register(uint8_t reg, uint8_t data){
+    uint8_t buf[2] = {reg, data};
+    return i2c_master_transmit(dev_handle, buf, 2, I2C_TIMEOUT_MS);
 }
 
-
-void IMU_Init( void )
-{
-    /*
-        Initialization function for the IMU (ISM330DHCX).
-        It sets up the I2C bus and configures the IMU control registers.
-    */
-    ESP_LOGI( TAG, "Initializing IMU..." );
-
-    i2c_master_bus_config_t i2c_mst_config = {
+static void I2C_Bus_Recover(void){
+    ESP_LOGW(TAG, "Resetting I2C bus...");
+    if (bus_handle) {
+        i2c_del_master_bus(bus_handle);
+        bus_handle = NULL;
+    }
+    i2c_master_bus_config_t cfg = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .i2c_port = I2C_PORT_0,
         .scl_io_num = I2C_MASTER_SCL_PIN,
         .sda_io_num = I2C_MASTER_SDA_PIN,
         .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
+        .flags.enable_internal_pullup = false,
     };
 
-    i2c_master_bus_handle_t bus_handle;
-    if( ESP_OK == i2c_new_master_bus( &i2c_mst_config, &bus_handle ) )
-    {
-        ESP_LOGI( TAG, "I2C bus created." );
+    ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &bus_handle));
+    ESP_LOGI(TAG, "I2C bus reset complete");
+}
+
+static esp_err_t IMU_Select_Address(void){
+    for (int i = 0; i < 2; i++) {
+        uint8_t addr = imu_addresses[i];
+        if (i2c_master_probe(bus_handle, addr, 10) == ESP_OK) {
+            imu_addr = addr;
+            ESP_LOGI(TAG, "IMU found at 0x%02X", addr);
+            return ESP_OK;
+        }
     }
-    else
-    {
-        ESP_LOGE( TAG, "Failed to create I2C bus." );
+    return ESP_FAIL;
+}
+
+static void IMU_Handle_Failure(void){
+    imu_fail_count++;
+
+    ESP_LOGW(TAG, "IMU fail count: %d", imu_fail_count);
+    if (imu_fail_count >= IMU_MAX_RETRY) {
+        ESP_LOGE(TAG, "IMU unresponsive → resetting bus");
+
+        imu_fail_count = 0;
+        imu_initialized = false;
+
+        I2C_Bus_Recover();
+        IMU_Init();
+    }
+}
+
+void IMU_Init(void){
+    ESP_LOGI(TAG, "Initializing IMU...");
+
+    // CS pin is tied to a GPIO, setting it high to force i2c
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << IMU_CS_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = 0,
+        .pull_down_en = 0,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
+    gpio_set_level(IMU_CS_PIN, 1);
+
+    imu_fail_count = 0;
+
+    i2c_master_bus_config_t cfg = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = I2C_PORT_0,
+        .scl_io_num = I2C_MASTER_SCL_PIN,
+        .sda_io_num = I2C_MASTER_SDA_PIN,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = false,
+    };
+
+    ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &bus_handle));
+
+    if (IMU_Select_Address() != ESP_OK) {
+        ESP_LOGE(TAG, "IMU not found");
+
+        I2C_Bus_Recover();
+
+        if (IMU_Select_Address() != ESP_OK) {
+            ESP_LOGE(TAG, "IMU still not found after recovery");
+            return;
+        }
     }
 
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = IMU_I2C_ADDR,
+        .device_address = imu_addr,
         .scl_speed_hz = I2C_HZ_1MHZ,
     };
 
-    if( ESP_OK == i2c_master_bus_add_device( bus_handle, &dev_cfg, &dev_handle ) )
-    {
-        ESP_LOGI( TAG, "IMU device added to I2C bus." );
-    }
-    else
-    {
-        ESP_LOGE( TAG, "Failed to add IMU device to I2C bus." );
-    }
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle));
 
-    Write_Register( REG_CTRL1_XL, REG_CTRL1_XL_INIT ); 
-    Write_Register( REG_CTRL2_G, REG_CTRL2_G_INIT );
+    Write_Register(REG_CTRL1_XL, REG_CTRL1_XL_INIT);
+    Write_Register(REG_CTRL2_G, REG_CTRL2_G_INIT);
 
-    ESP_LOGI( TAG, "Initializing IMU... DONE" );
+    imu_initialized = true;
+
+    ESP_LOGI(TAG, "IMU init done (addr=0x%02X)", imu_addr);
 }
 
-void IMU_10ms( void )
-{
-    /*
-        Reads the raw accelerometer and gyroscope values from the IMU, then converts them to physical float values.
-        The values are stored in the imu_data struct.
-    */
+void IMU_10ms(void){
+    if (!imu_initialized) return;
 
-    // Read all registers at once
-    Read_Register( REG_OUTX_L_G, ( uint8_t* ) &imu_raw, READ_BUFFER_SIZE );
+    esp_err_t ret = Read_Register(REG_OUTX_L_G, (uint8_t*)&imu_raw, READ_BUFFER_SIZE);
 
-    // Convert raw values to physical values
+    if (ret != ESP_OK) {
+        IMU_Handle_Failure();
+        return;
+    }
+
+    imu_fail_count = 0;
+
     imu_data.gyro_x = imu_raw.gyro_x * SENSITIVITY_GYRO_500DPS / 1000;
     imu_data.gyro_y = imu_raw.gyro_y * SENSITIVITY_GYRO_500DPS / 1000;
     imu_data.gyro_z = imu_raw.gyro_z * SENSITIVITY_GYRO_500DPS / 1000;
-    imu_data.acc_x  = imu_raw.acc_x * SENSITIVITY_ACC_4G / 1000;
-    imu_data.acc_y  = imu_raw.acc_y * SENSITIVITY_ACC_4G / 1000;
-    imu_data.acc_z  = imu_raw.acc_z * SENSITIVITY_ACC_4G / 1000;
+
+    imu_data.acc_x = imu_raw.acc_x * SENSITIVITY_ACC_4G / 1000;
+    imu_data.acc_y = imu_raw.acc_y * SENSITIVITY_ACC_4G / 1000;
+    imu_data.acc_z = imu_raw.acc_z * SENSITIVITY_ACC_4G / 1000;
 
     // Transmit raw data over CAN
     // TODO: test if endianness is correct
@@ -154,11 +151,10 @@ void IMU_10ms( void )
     CAN_Transmit( 0x361, ( uint8_t* ) &imu_raw.acc_x, CAN_361_DLC );    // accelerometer
 
     // Only for debugging
-    printf("\033[2J\033[H");
-    ESP_LOGI( TAG, "Acceleration X: %f", imu_data.acc_x );
-    ESP_LOGI( TAG, "Acceleration Y: %f", imu_data.acc_y );
-    ESP_LOGI( TAG, "Acceleration Z: %f", imu_data.acc_z );
-    ESP_LOGI( TAG, "Gyro X: %f", imu_data.gyro_x );
-    ESP_LOGI( TAG, "Gyro Y: %f", imu_data.gyro_y );
-    ESP_LOGI( TAG, "Gyro Z: %f", imu_data.gyro_z );
+    // ESP_LOGI( TAG, "Acceleration X: %f", imu_data.acc_x );
+    // ESP_LOGI( TAG, "Acceleration Y: %f", imu_data.acc_y );
+    // ESP_LOGI( TAG, "Acceleration Z: %f", imu_data.acc_z );
+    // ESP_LOGI( TAG, "Gyro X: %f", imu_data.gyro_x );
+    // ESP_LOGI( TAG, "Gyro Y: %f", imu_data.gyro_y );
+    // ESP_LOGI( TAG, "Gyro Z: %f", imu_data.gyro_z );
 }

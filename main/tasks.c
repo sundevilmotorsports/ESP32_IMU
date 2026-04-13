@@ -40,17 +40,14 @@ static void TASKS_500ms( void *pvParameters )
 
     ESP_LOGI( TAG, "Starting 500ms task..." );
 
-    while( 1 )
-    {
+    while( 1 ){
         LED_500ms();
-
         vTaskDelayUntil( &xLastWakeTime, xFrequency );
     }
 }
 
 
-void TASKS_Init( void )
-{
+void TASKS_Init( void ){
     /*
         Create all the periodic tasks from highest priority to lowest priority
     */
